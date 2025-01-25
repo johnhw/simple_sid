@@ -109,3 +109,5 @@ int32_t bufferSamplesSid(sid_t *sid,
                          int32_t maxSamples);
 void sidFilterStep(float in, float cutoff, float resonance, uint8_t filterSel,
                    filterState_t *st, float *out);
+
+#endif

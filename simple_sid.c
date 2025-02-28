@@ -41,10 +41,10 @@ void sidChannelInit(sidChannel_t *ch)
    SID initialization
    (PAL ~ 63*312*50 = ~982,800 cycles/sec, 44.1kHz => ~22.3 cyc/sample)
    ------------------------------------------------------------------ */
-void sidInit(sid_t *sid)
+void sidInit(sid_t *sid, int32_t sampleRate)
 {
     int i;
-    sid->cyclesPerSample = (63.f * 312.f * 50.f) / 44100.f;
+    sid->cyclesPerSample = (63.f * 312.f * 50.f) / (float)sampleRate;
     sid->cycleAccumulator = 0.f;
     sid->filter.low = 0.f;
     sid->filter.band = 0.f;
@@ -284,7 +284,7 @@ void clockSidChannel(sidChannel_t *ch, int cycles)
    Get channel output as float [-1..+1] scaled by envelope
    ------------------------------------------------------------------ */
 float getOutputSidChannel(sidChannel_t *ch)
-{    
+{
     if (ch->volumeLevel == 0)
         return 0.f;
 
@@ -364,11 +364,10 @@ float getOutputSidChannel(sidChannel_t *ch)
 
     /* center at 0x8000 => signed -32768..+32767 */
     int centered = (int)waveOut - 0x8000;
-    float env = (ch->volumeLevel / 255.0f);    
+    float env = (ch->volumeLevel / 255.0f);
     /* scale to [-1..+1] or so */
     return (centered * env) / 32768.0f;
 }
-
 
 void dumpSID(int cpuCycles, int32_t maxSamples, const sidRegs_t *regs, sid_t *sid)
 {
@@ -390,7 +389,8 @@ void dumpSID(int cpuCycles, int32_t maxSamples, const sidRegs_t *regs, sid_t *si
     for (int i = 0; i < 3; i++)
     {
         int baseRow = 11 + i * 6;
-        const char *color = (i == 0) ? "\033[1;34m" : (i == 1) ? "\033[1;33m" : "\033[1;31m";
+        const char *color = (i == 0) ? "\033[1;34m" : (i == 1) ? "\033[1;33m"
+                                                               : "\033[1;31m";
 
         printf("\033[%d;5H%s┌────────────────────────────────────────────────────────────────────────────────────────────────────────────┐\033[0m", baseRow, color);
         printf("\033[%d;5H%s│\033[0m channels[%d].frequency:   \033[1;32m%05d\033[0m pulse:          \033[1;32m%05d\033[0m waveform:    \033[1;32m%05d\033[0m ad:             \033[1;32m%05d\033[0m sr: \033[1;32m%05d\033[0m %s   │\033[0m", baseRow + 1, color, i, sid->channels[i].frequency, sid->channels[i].pulse, sid->channels[i].waveform, sid->channels[i].ad, sid->channels[i].sr, color);
@@ -400,6 +400,7 @@ void dumpSID(int cpuCycles, int32_t maxSamples, const sidRegs_t *regs, sid_t *si
         printf("\033[%d;5H%s└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘\033[0m", baseRow + 5, color);
     }
 }
+
 /* ------------------------------------------------------------------
    Advance SID by cpuCycles, produce audio samples in outSamples
    Returns number of samples written (up to maxSamples).
@@ -407,15 +408,23 @@ void dumpSID(int cpuCycles, int32_t maxSamples, const sidRegs_t *regs, sid_t *si
 int32_t bufferSamplesSid(sid_t *sid,
                          int cpuCycles,
                          const sidRegs_t *regs,
-                         int16_t *outSamples,
-                         int32_t maxSamples)
+                         void *outSamples,
+                         int32_t maxSamples,
+                         int bufferType,
+                         bool zeroBuffer)
 {
     int32_t outIndex = 0;
     if (cpuCycles <= 0 || maxSamples <= 0)
         return 0;
-    
-    //dumpSID(cpuCycles, maxSamples, regs, sid);
-    
+    assert(bufferType == BUFFER_INT16 || bufferType == BUFFER_FLOAT);
+    assert(outSamples);
+    assert(regs);
+    assert(sid);
+
+#ifdef DEBUG
+    dumpSID(cpuCycles, maxSamples, regs, sid);
+#endif
+
     /* 1) Update channel register values from sidRegs_t */
     sid->channels[0].frequency = (uint16_t)regs->freq0;
     sid->channels[0].pulse = (uint16_t)regs->pulse0;
@@ -526,7 +535,20 @@ int32_t bufferSamplesSid(sid_t *sid,
             if (out > 1.f)
                 out = 1.f;
 
-            outSamples[outIndex++] = (int16_t)(out * 32767.f);
+            if (zeroBuffer)
+            {
+                if (bufferType == BUFFER_INT16)
+                    ((int16_t *)outSamples)[outIndex++] = (int16_t)(out * 32767.f);
+                else if (bufferType == BUFFER_FLOAT)
+                    ((float *)outSamples)[outIndex++] = out;
+            }
+            else
+            {
+                if (bufferType == BUFFER_INT16)
+                    ((int16_t *)outSamples)[outIndex++] += (int16_t)(out * 32767.f);
+                else if (bufferType == BUFFER_FLOAT)
+                    ((float *)outSamples)[outIndex++] += out;
+            }
         }
 
         cpuCycles -= stepNow;
@@ -537,10 +559,7 @@ int32_t bufferSamplesSid(sid_t *sid,
 
 static float saturate(float x)
 {
-    /* Simple polynomial approximation to tanh or shape function. */
-    /* e.g. x - x^3/6 => slight softening near +/-1 */
-    const float alpha = 0.1666667f; /* 1/6 */
-    return x - (x * x * x) * alpha;
+    return x - (x * x * x) / 6.0f;
 }
 
 /*

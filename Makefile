@@ -9,7 +9,7 @@ SRCS = simple_sid.c sid_test.c
 OBJS = $(SRCS:.c=.o)
 
 # Executable
-EXEC = sid_test
+EXEC = sid
 
 # Default target
 all: $(EXEC)

@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <assert.h>
 #include "simple_sid.h" 
 
 
@@ -75,16 +76,17 @@ static uint16_t freqToSidRegister(float hz)
 /* --------------------------------------------------------------
    main: demonstration harness
    -------------------------------------------------------------- */
-int compex_main(void)
+int complex_main(void)
 {
     /* 1) Create a SID instance and initialize. */
     sid_t mySid;
-    sidInit(&mySid);
+    
 
     /* 2) We'll generate 4 seconds of audio at 44.1kHz => 176400 samples. */
     const int sampleRate   = 44100;
     const float duration   = 4.0f;  
     const int totalSamples = (int)(sampleRate * duration);
+    sidInit(&mySid, sampleRate);
 
     /* We'll store the samples in a static array. */
     int16_t *waveData = (int16_t*)calloc(totalSamples, sizeof(int16_t));
@@ -120,7 +122,7 @@ int compex_main(void)
     regs.waveform0 = 0x41; /* pulse + gate */
     regs.ad0       = 0x11;
     regs.sr0       = 0xF0;
-    regs.pulse0    = 0x0800;
+    regs.pulse0    = 0x0400;
 
     /* Channel 1 => Triangle wave + gate => 0x11 
          Let's do 110 Hz as a drone
@@ -128,7 +130,7 @@ int compex_main(void)
     regs.waveform1 = 0x11; /* triangle + gate */
     regs.ad1       = 0x22;
     regs.sr1       = 0xF0;
-    regs.freq1     = freqToSidRegister(110.0f);
+    regs.freq1     = freqToSidRegister(440.0f);
     regs.pulse1    = 0; /* not used for triangle */
 
     /* Channel 2 => Noise + gate => 0x81 
@@ -139,7 +141,7 @@ int compex_main(void)
     regs.waveform2 = 0x81; 
     regs.ad2       = 0x33;
     regs.sr2       = 0xF0;
-    regs.freq2     = freqToSidRegister(500.0f);
+    regs.freq2     = freqToSidRegister(5000.0f);
 
     /* 5) We'll ramp filter cutoff from 0..2047 over all 4 seconds
          Also enable a lowpass + bandpass combination for a swirl effect, 
@@ -150,7 +152,7 @@ int compex_main(void)
          We'll also route all channels into filter => bit0 => ch0, bit1 => ch1, bit2 => ch2
          so filterCtrl= 0x07 => all filtered, plus resonance nibble => 0x90 => combined => 0x97?
     */
-    regs.filterCtrl = 0x97;  /* (resonance=9<<4) + (ch0/ch1/ch2 => 0x07) */
+    regs.filterCtrl = 0x07;  /* (resonance=9<<4) + (ch0/ch1/ch2 => 0x07) */
     regs.volume     = 0x1f;  /* (0x1 => volume=15 => 0xf, 0x10 => lowpass bit ) 
                                 Actually let's do 0x1f => 0x1*16=16 (0x10 => lowpass?), 
                                 + 0xf => max volume 
@@ -189,7 +191,7 @@ int compex_main(void)
            We keep it in sync so it basically produces 1 sample each call. 
         */
         int n = bufferSamplesSid(&mySid, cyclesThisSample, &regs,
-                                 &waveData[i], 1);
+                                 &waveData[i], 1, BUFFER_INT16, true);
         if (n < 1) {
             /* If we somehow didn't produce a sample, just force 0. */
             waveData[i] = 0;
@@ -210,11 +212,12 @@ int simple_main(void)
 {
     /* 1) Create and init the SID object */
     sid_t mySid;
-    sidInit(&mySid);
-
+    
     /* 2) We'll output 10s of audio at 44.1kHz => 441000 samples */
     const int sampleRate   = 44000;
     const float duration   = 10.0f; 
+    sidInit(&mySid, sampleRate);
+
     const int totalSamples = (int)(sampleRate * duration);
     printf("\033[2J\n");
     int16_t *waveData = (int16_t*)calloc(totalSamples, sizeof(int16_t));
@@ -253,7 +256,9 @@ int simple_main(void)
                                          cyclesForOneSample * 400,
                                          &regs,
                                          bufPtr, /* pointer to current sample */
-                                         400);           /* space for 1 sample */
+                                         400,
+                                         BUFFER_INT16,
+                                         true);           /* space for 1 sample */
         bufPtr += generated;
     }
 
@@ -266,6 +271,6 @@ int simple_main(void)
 
 int main(int argc, char *argv[])
 {
-    return simple_main();
+    return complex_main();
  
 }

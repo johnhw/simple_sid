@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <math.h>
 #include <stdint.h>
+#include <assert.h>
 
 /* ------------------------------------------------------------------
    If your environment doesn't define M_PI:
@@ -13,6 +14,10 @@
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+#define BUFFER_INVALID 0 
+#define BUFFER_INT16 1
+#define BUFFER_FLOAT 2
 
 typedef struct {
     float low;
@@ -59,8 +64,7 @@ typedef struct
     sidChannel_t channels[3];
     float cyclesPerSample;
     float cycleAccumulator;
-    filterState_t filter;
-    
+    filterState_t filter;    
 } sid_t;
 
 /* ------------------------------------------------------------------
@@ -97,17 +101,19 @@ typedef struct
 } sidRegs_t;
 
 void sidChannelInit(sidChannel_t *ch);
-void sidInit(sid_t *sid);
+void sidInit(sid_t *sid, int32_t sampleRate);
 unsigned triangleSidChannel(sidChannel_t *ch);
 unsigned noiseSidChannel(sidChannel_t *ch);
 void clockSidChannel(sidChannel_t *ch, int cycles);
 float getOutputSidChannel(sidChannel_t *ch);
+
 int32_t bufferSamplesSid(sid_t *sid,
                          int cpuCycles,
                          const sidRegs_t *regs,
-                         int16_t *outSamples,
-                         int32_t maxSamples);
+                         void *outSamples,
+                         int32_t maxSamples,
+                         int bufferType,
+                         bool zeroBuffer);
 void sidFilterStep(float in, float cutoff, float resonance, uint8_t filterSel,
                    filterState_t *st, float *out);
-
 #endif
